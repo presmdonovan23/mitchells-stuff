@@ -48,7 +48,10 @@ srs_wkt = srs.ExportToPrettyWkt()
 
 years = [1999,2001,2007,2012,2017]
 Islands = ['North','South']
+# you use 3 different strings to basically do the same thing. e.g., BEF, bef, and beef.
 farmTypes = ['BEF','DAI','DRY','SHP','SNB','DEE','NAT','GRA']
+farm_types_2 = ['dai', 'bef', 'shp', 'dee']
+farm_types_3 = ['dairy', 'sheep', 'beef', 'deer']
 subCols = ['farm_id','farm_type','REG','region','RegKey','bef_nos','dai_nos','shp_nos','dee_nos','geometry']
 
 cols2017 = ['LandCover','UniqueID','farm_id','farm_type','REG','Region','AreaMtr2','AreaHa','geometry']
@@ -69,58 +72,61 @@ farmKey = pd.read_csv(os.path.join(aspatialFolder,'Grazing','AgriBase_FarmCodeKe
 
 for Island in Islands:
     for year in [2017, 1999]:
-        pastoralLoc = os.path.join(vecFolder,'Grazing','pastoralGdb'+str(year)+Island+'NZ.shp')
+        # ideally year would just be another column in your dataframe. then you could avoid all of the year suffixes you need to add
+        pastoralLoc = os.path.join(vecFolder,'Grazing',f'pastoralGdb{year}{Island}NZ.shp')
         farmStockClean = gpd.read_file(pastoralLoc)
 
         #setting default for final farm populations to 0, these will be overrode later, where relevant.
-        farmStockClean['dai'+str(year)] = 0; farmStockClean['daiDen'+str(year)] = 0
-        farmStockClean['bef'+str(year)] = 0; farmStockClean['befDen'+str(year)] = 0
-        farmStockClean['shp'+str(year)] = 0; farmStockClean['shpDen'+str(year)] = 0
-        farmStockClean['dee'+str(year)] = 0; farmStockClean['deeDen'+str(year)] = 0    
+        for farm_type in farm_types_2:
+            farmStockClean[f'{farm_type}_{year}'] = 0
+            farmStockClean[f'{farm_type}_den_{year}'] = 0 
         
         begTime = time.time()
         for grID in farmStockClean.grid_id.unique(): 
         #statsNZ total population of each stock type for the current grid cell
-
-            daiGridPop = int(farmStockClean[farmStockClean.grid_id == grID]['dairy'+str(year)].unique()[0])
-            shpGridPop = int(farmStockClean[farmStockClean.grid_id == grID]['sheep'+str(year)].unique()[0])
-            befGridPop = int(farmStockClean[farmStockClean.grid_id == grID]['beef'+str(year)].unique()[0])
-            deeGridPop = int(farmStockClean[farmStockClean.grid_id == grID]['deer'+str(year)].unique()[0])
+            
+            grid_pop = {farm_type: int(farmStockClean[farmStockClean.grid_id == grID][f'{farm_type}_{year}'].unique()[0])
+                        for farm_type in farm_types_3}
             #printing data check
             #print('dsb grid pop totals: {0},{1},{2}'.format(daiGridPop,shpGridPop,befGridPop))
 
         #total area of each farm type within the grid:
-            daiGridArea = np.sum(farmStockClean[(farmStockClean.grid_id == grID)&(farmStockClean.farm_type=='DAI')].AreaHa)
-            befGridArea = np.sum(farmStockClean[(farmStockClean.grid_id == grID)&(farmStockClean.farm_type=='BEF')].AreaHa)
-            shpGridArea = np.sum(farmStockClean[(farmStockClean.grid_id == grID)&(farmStockClean.farm_type=='SHP')].AreaHa)
-            snbGridArea = np.sum(farmStockClean[(farmStockClean.grid_id == grID)&(farmStockClean.farm_type=='SNB')].AreaHa)
-            dryGridArea = np.sum(farmStockClean[(farmStockClean.grid_id == grID)&(farmStockClean.farm_type=='DRY')].AreaHa)
-            natGridArea = np.sum(farmStockClean[(farmStockClean.grid_id == grID)&(farmStockClean.farm_type=='NAT')].AreaHa)
-            deeGridArea = np.sum(farmStockClean[(farmStockClean.grid_id == grID)&(farmStockClean.farm_type=='DEE')].AreaHa)
+            grid_area = {farm_type: np.sum(farmStockClean[(farmStockClean.grid_id == grID)&(farmStockClean.farm_type=='DAI')].AreaHa)
+                         for farm_type in farm_types}
             #printing data check
             #print('dsb farm areas: {0},{1},{2}'.format((daiGridArea+dryGridArea),(shpGridArea+snbGridArea+natGridArea),(befGridArea+snbGridArea+natGridArea)))
-
+            
         #actual density of stock types for the grid, based on total farm area within the current grid
-            if (daiGridPop == 0) | ((daiGridArea+dryGridArea) == 0): dai_PopDens = 0
-            elif (daiGridPop > 0) & ((daiGridArea+dryGridArea) > 0): dai_PopDens = daiGridPop / (daiGridArea+dryGridArea)
 
-            if (shpGridPop == 0) | ((shpGridArea+snbGridArea+natGridArea) == 0): shp_PopDens = 0
-            elif (shpGridPop > 0) & ((shpGridArea+snbGridArea+natGridArea) > 0): shp_PopDens = shpGridPop / (shpGridArea+snbGridArea+natGridArea)
-
-            if (befGridPop == 0) | ((befGridArea+snbGridArea+natGridArea) == 0): bef_PopDens = 0
-            elif (befGridPop > 0) & ((befGridArea+snbGridArea+natGridArea) > 0): bef_PopDens = befGridPop / (befGridArea+snbGridArea+natGridArea)
-
-            if (deeGridPop == 0) | ((deeGridArea) == 0): dee_PopDens = 0
-            elif (deeGridPop > 0) & ((deeGridArea) > 0): dee_PopDens = deeGridPop / (deeGridArea)
+            # why is the denominator different for all 4? isn't there some structure to this formula?
+            pop_dens = dict()
+            for farm_type in farm_types_2:
+                if farm_type == 'dai':
+                    grid_area_tot = grid_area['DAI'] + grid_area['DRY']
+                elif farm_type == 'shp':
+                    grid_area_tot = grid_area['SHP'] + grid_area['SNB'] + grid_area['NAT']
+                elif farm_type == 'bef':
+                    grid_area_tot = grid_area['BEF'] + grid_area['SNB'] + grid_area['NAT']
+                elif farm_type = 'dee':
+                    grid_area_tot = grid_area['DEE']
+                
+                pop_dens[farm_type] = grid_pop[farm_type] / grid_area_tot if grid_area_tot > 0 else 0
 
             #printing data check
             #print('dsb grid popDens totals: {0},{1},{2}'.format(dai_PopDens,shp_PopDens,bef_PopDens))
 
             #Calculating stock populations at farm scales (multiply average grid density x farm area (km2))
-            farmStockClean.loc[(farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['DAI','DRY'])), 'dai'+str(year)] = dai_PopDens * farmStockClean.loc[(farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['DAI','DRY'])),'AreaHa']
-            farmStockClean.loc[(farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['SHP','SNB','NAT'])),'shp'+str(year)] = shp_PopDens * farmStockClean.loc[(farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['SHP','SNB','NAT'])),'AreaHa']
-            farmStockClean.loc[(farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['BEF','SNB','NAT'])),'bef'+str(year)] = bef_PopDens * farmStockClean.loc[(farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['BEF','SNB','NAT'])),'AreaHa']  
-            farmStockClean.loc[(farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['DEE'])),'dee'+str(year)] = dee_PopDens * farmStockClean.loc[(farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['DEE'])),'AreaHa']  
+            # some stylistic things to avoid:
+            #    - each line here is extremely long and unreadable. write code that is easy to understand
+            #    - add more spaces. spaces should go between any operator (==, &, +, etc.)
+            inds = (farmStockClean.grid_id == grID) & (farmStockClean.farm_type.isin(['DAI','DRY']))
+            farmStockClean.loc[inds, 'dai'+str(year)] = dai_PopDens * farmStockClean.loc[inds,'AreaHa']
+            inds = (farmStockClean.grid_id == grID) & (farmStockClean.farm_type.isin(['SHP','SNB','NAT']))
+            farmStockClean.loc[inds,'shp'+str(year)] = shp_PopDens * farmStockClean.loc[inds,'AreaHa']
+            inds = (farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['BEF','SNB','NAT']))
+            farmStockClean.loc[inds,'bef'+str(year)] = bef_PopDens * farmStockClean.loc[inds,'AreaHa']  
+            inds = (farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['DEE']))
+            farmStockClean.loc[inds,'dee'+str(year)] = dee_PopDens * farmStockClean.loc[inds,'AreaHa']  
 
             farmStockClean.loc[(farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['DAI','DRY'])), 'daiDen'+str(year)] = dai_PopDens
             farmStockClean.loc[(farmStockClean.grid_id==grID)&(farmStockClean.farm_type.isin(['SHP','SNB','NAT'])),'shpDen'+str(year)] = shp_PopDens
@@ -129,10 +135,8 @@ for Island in Islands:
         
         #After all calcs have finished:
         #Convert final populations to integers, rounding up to the nearest stock
-        farmStockClean['dai'+str(year)]=np.round(farmStockClean['dai'+str(year)],0).astype(int)
-        farmStockClean['shp'+str(year)]=np.round(farmStockClean['shp'+str(year)],0).astype(int)
-        farmStockClean['bef'+str(year)]=np.round(farmStockClean['bef'+str(year)],0).astype(int)
-        farmStockClean['dee'+str(year)]=np.round(farmStockClean['dee'+str(year)],0).astype(int)
+        for farm_type in farm_types_2:
+            farmStockClean[f'{farm_type}_{year}'] = np.round(farmStockClean[f'{farm_type}_{year}'],0).astype(int)
         
         if 'Region' in farmStockClean.columns:
             farmStockClean.rename(columns={'Region':'region'},inplace=True)
